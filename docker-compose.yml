@@ -1,0 +1,44 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: agentpay-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: agentpay_secure_password_2026
+      POSTGRES_DB: agentpay
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d agentpay"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  agentpay-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: agentpay-web
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:agentpay_secure_password_2026@postgres:5432/agentpay?schema=public
+      AUTH_SECRET: agentpay-docker-production-session-secret-key-32bytes
+      APP_URL: http://localhost:3000
+      X402_MODE: simulated
+      X402_NETWORK: eip155:84532
+      PAYMENT_TOKEN_ADDRESS: "0x036CbD53842c5426634e7929541eC2318f3dCF7e"
+      PAYMENT_RECIPIENT_ADDRESS: "0x70997970C51812dc3A010C7d01b50e0d17dc79C8"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:

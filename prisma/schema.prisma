@@ -1,0 +1,171 @@
+// Prisma schema for AgentPay
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CONSUMER
+  PROVIDER
+  ADMIN
+}
+
+enum ServiceCategory {
+  AI_INFERENCE
+  DATA_FEEDS
+  FINANCIAL
+  UTILITY
+}
+
+enum ServiceStatus {
+  DRAFT
+  PUBLISHED
+  SUSPENDED
+}
+
+enum TransactionStatus {
+  PENDING
+  AUTHORIZED
+  VERIFIED
+  SETTLED
+  FAILED
+  EXPIRED
+}
+
+enum AttemptStatus {
+  INITIATED
+  AUTHORIZING
+  VERIFIED
+  SETTLED
+  REJECTED
+}
+
+model User {
+  id            String               @id @default(uuid())
+  email         String               @unique
+  passwordHash  String
+  displayName   String
+  role          Role                 @default(CONSUMER)
+  spendingLimit Decimal              @default(100.0)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  wallets       Wallet[]
+  services      Service[]            @relation("ProviderServices")
+  transactions  PaymentTransaction[] @relation("ConsumerTransactions")
+  auditLogs     AuditLog[]
+
+  @@map("users")
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  address   String
+  network   String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, address, network])
+  @@index([address])
+  @@map("wallets")
+}
+
+model Service {
+  id               String               @id @default(uuid())
+  providerId       String
+  provider         User                 @relation("ProviderServices", fields: [providerId], references: [id], onDelete: Cascade)
+  name             String
+  slug             String               @unique
+  description      String
+  category         ServiceCategory      @default(UTILITY)
+  endpointPath     String
+  price            String               // Token atomic units as integer string, e.g. "10000" for 0.01 USDC
+  tokenAddress     String
+  network          String               // CAIP-2 e.g. "eip155:84532"
+  recipientAddress String
+  status           ServiceStatus        @default(PUBLISHED)
+  isDemo           Boolean              @default(false)
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+  transactions     PaymentTransaction[]
+  paymentAttempts  PaymentAttempt[]
+  apiUsages        ApiUsage[]
+
+  @@index([status, category])
+  @@map("services")
+}
+
+model PaymentTransaction {
+  id               String            @id @default(uuid())
+  userId           String?
+  user             User?             @relation("ConsumerTransactions", fields: [userId], references: [id], onDelete: SetNull)
+  serviceId        String
+  service          Service           @relation(fields: [serviceId], references: [id], onDelete: Restrict)
+  payerAddress     String
+  recipientAddress String
+  amount           String            // Atomic units
+  tokenAddress     String
+  network          String
+  protocolVersion  String            @default("2.0")
+  paymentScheme    String            @default("exact")
+  status           TransactionStatus @default(PENDING)
+  transactionHash  String?
+  isSimulated      Boolean           @default(false)
+  errorMessage     String?
+  createdAt        DateTime          @default(now())
+  settledAt        DateTime?
+
+  @@index([payerAddress])
+  @@index([recipientAddress])
+  @@index([status])
+  @@index([createdAt])
+  @@map("payment_transactions")
+}
+
+model PaymentAttempt {
+  id            String        @id @default(uuid())
+  serviceId     String
+  service       Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  transactionId String?
+  requestId     String        @unique
+  payerAddress  String?
+  status        AttemptStatus @default(INITIATED)
+  errorCode     String?
+  createdAt     DateTime      @default(now())
+  completedAt   DateTime?
+
+  @@index([serviceId, status])
+  @@map("payment_attempts")
+}
+
+model ApiUsage {
+  id            String   @id @default(uuid())
+  serviceId     String
+  service       Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  transactionId String?
+  statusCode    Int
+  durationMs    Int
+  createdAt     DateTime @default(now())
+
+  @@index([serviceId, createdAt])
+  @@map("api_usage")
+}
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  actorId      String?
+  actor        User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action       String
+  resourceType String
+  resourceId   String?
+  metadata     Json?
+  createdAt    DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@map("audit_logs")
+}
